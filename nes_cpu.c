@@ -7,6 +7,7 @@
 #include <string.h>
 #include <errno.h>
 
+#include "interface.h"
 #include "nes_cpu.h"
 
 size_t file_size;
@@ -17,7 +18,7 @@ int nes_init_cpu()
     nes_cpu_registers.A = 0x00;
     nes_cpu_registers.X = 0x00;
     nes_cpu_registers.Y = 0x00;
-    nes_cpu_registers.S = 0x34;
+    nes_cpu_registers.S = 0x24;
     
     nes_cpu_registers.SP = 0xFD;
     nes_cpu_registers.PC = 0xFFFC;
@@ -26,6 +27,29 @@ int nes_init_cpu()
     nes_cpu_bus.DB = 0x0000;
 
     return 0;
+}
+
+/* For debug purposes only, print contents of registers */
+void print_nes_cpu_trace(uint8_t opcode)
+{
+    printf("%04X ", nes_cpu_registers.PC);
+    print_opcode(opcode);
+    printf("%s\t", addr_mode_str[nes_2A02_cpu_opcode_map[opcode].AM]);
+    printf("A:%02X", nes_cpu_registers.A);
+    printf(" X:%02X", nes_cpu_registers.X);
+    printf(" Y:%02X", nes_cpu_registers.Y);
+    printf(" P:%02X",  nes_cpu_registers.S);
+    printf(" SP:%02X", nes_cpu_registers.SP);
+    printf(" ADDR:%04X", nes_cpu_bus.AB);
+    printf(" DB:%02X ", nes_cpu_bus.DB);
+    printf(" N:%d", get_flag(N));
+    printf(" V:%d", get_flag(V));
+    printf(" U:%d", get_flag(U));
+    printf(" B:%d", get_flag(B));
+    printf(" D:%d", get_flag(D));
+    printf(" I:%d", get_flag(I));
+    printf(" Z:%d", get_flag(Z));
+    printf(" C:%d\n", get_flag(C));
 }
 
 /* 
@@ -167,790 +191,757 @@ int nes_load_rom(const char * filename, _nes_cartridge * cart)
     /* Finally, clear the file pointer and return 0 */
     fclose(rom);
 
-    //nes_cpu_registers.PC = (uint16_t)PEEK(nes_cpu_registers.PC + 1) << 8 | PEEK(nes_cpu_registers.PC);
-    nes_cpu_registers.PC = 0x8000;
+    nes_cpu_registers.PC = (uint16_t)PEEK(nes_cpu_registers.PC + 1) << 8 | PEEK(nes_cpu_registers.PC);
+    //nes_cpu_registers.PC = 0x8000;
     return 0;
 }
 
-/* literally copy and paste assembled 6502 code here */
-void test_emu(uint8_t * program, size_t size)
+typedef union _PPU_pix
 {
-    nes_cpu_registers.PC = 0x8000;
-    memcpy(&nes_cpu_mem.mem[nes_cpu_registers.PC], program, size);
+    uint16_t row;
+    struct 
+    {
+        uint8_t pix7 : 2;
+        uint8_t pix6 : 2;
+        uint8_t pix5 : 2;
+        uint8_t pix4 : 2;
+        uint8_t pix3 : 2;
+        uint8_t pix2 : 2;
+        uint8_t pix1 : 2;
+        uint8_t pix0 : 2;
+    };
+}
+_PPU_pix;
+
+/* PPU pattern table dump for debug purposes */
+static inline void PPU_pattern_table_dump(Display * disp, bool page)
+{
+    const uint32_t gray_scale_pix[] = {
+        0xFF000000,
+        0xFF444444,
+        0xFFCCCCCC,
+        0xFFFFFFFF
+    };
+
+    uint32_t pix_seq[8];
+
+    _PPU_pix pix_row;
+
+    for (size_t i = 0; i < 128; i++)
+    {
+        for (size_t j = 0; j < 16; j++)
+        {
+            uint8_t t_row = (i >> 3);
+            uint8_t hi = nes_ppu.PPU_Pattern_bytes[page][(t_row << 8) | (j << 4) + 8 + (i & 0x7)],
+                    lo = nes_ppu.PPU_Pattern_bytes[page][(t_row << 8) | (j << 4) + (i & 0x7)];
+            
+            pix_row.row = conv_to_pix_row(hi, lo);
+
+            pix_seq[0] = gray_scale_pix[pix_row.pix0];
+            pix_seq[1] = gray_scale_pix[pix_row.pix1];
+            pix_seq[2] = gray_scale_pix[pix_row.pix2];
+            pix_seq[3] = gray_scale_pix[pix_row.pix3];
+            pix_seq[4] = gray_scale_pix[pix_row.pix4];
+            pix_seq[5] = gray_scale_pix[pix_row.pix5];
+            pix_seq[6] = gray_scale_pix[pix_row.pix6];
+            pix_seq[7] = gray_scale_pix[pix_row.pix7];
+
+            write_ARGB8888_arr_to_display(disp, (j*8), i, pix_seq, 8, 1);
+        }
+    }
 }
 
+/* PPU pallete table dump for debug purposes */
+
+void PPU_pallete_table_dump(Display * disp)
+{
+    uint32_t    bg_seq[128],
+                fg_seq[128];
+
+    /* Print background pallete */
+    for (size_t i = 0; i < 16; i++)
+    {
+        write_ARGB8888_pixel_to_display(disp, (i * 4),      247, NES_palette[nes_ppu.PPU_Pallete_Data[0][i]]);
+        write_ARGB8888_pixel_to_display(disp, (i * 4 + 1),  247, NES_palette[nes_ppu.PPU_Pallete_Data[0][i]]);
+        write_ARGB8888_pixel_to_display(disp, (i * 4 + 2),  247, NES_palette[nes_ppu.PPU_Pallete_Data[0][i]]);
+        write_ARGB8888_pixel_to_display(disp, (i * 4 + 3),  247, NES_palette[nes_ppu.PPU_Pallete_Data[0][i]]);   
+    }
+
+    /* Print foreground pallete */
+    for (size_t i = 0; i < 16; i++)
+    {
+        write_ARGB8888_pixel_to_display(disp, 128 + (i * 4),      247, NES_palette[nes_ppu.PPU_Pallete_Data[1][i]]);
+        write_ARGB8888_pixel_to_display(disp, 128 + (i * 4 + 1),  247, NES_palette[nes_ppu.PPU_Pallete_Data[1][i]]);
+        write_ARGB8888_pixel_to_display(disp, 128 + (i * 4 + 2),  247, NES_palette[nes_ppu.PPU_Pallete_Data[1][i]]);
+        write_ARGB8888_pixel_to_display(disp, 128 + (i * 4 + 3),  247, NES_palette[nes_ppu.PPU_Pallete_Data[1][i]]);
+    }    
+}
+
+/* NES screen */
+/*
+void PPU_write(Display * disp)
+{
+    for (size_t i = 0; i < 241; i++)
+        write_ARGB8888_arr_to_display(disp, 0, i, &(nes_ppu.screen_buffer[]))
+}
+*/
+
 /* Finally, the "meat and potatoes" of the emulator, the interpreter! */
-void interpret()
+void interpret(Display * disp, Display * PPU_debug)
 {
     uint8_t opcode, no_of_breaks = 0; 
-    for(;;)
+    int exit_code = 0;
+    while( exit_code == 0 )
     {
         /* Fetch opcode from memory */
         opcode = PEEK(nes_cpu_registers.PC);
         
+        get_operand_AM(nes_2A02_cpu_opcode_map[opcode].AM);
+        print_nes_cpu_trace(opcode);
+
         /* Decode and execute the opcode */
         switch (opcode)
         {
             case BRK_IMP:   
-                get_operand_AM(IMP);
                 BRK();
                 nes_cpu_registers.Cycles = 7;
                 break;
             case ORA_INDX:  
-                get_operand_AM(INDX);
                 ORA();
                 nes_cpu_registers.Cycles = 6;
                 break;
             case ORA_ZP:    
-                get_operand_AM(ZP);
                 ORA(); 
                 nes_cpu_registers.Cycles = 3; 
                 break;
             case ASL_ZP:    
-                get_operand_AM(ZP);
                 ASL(); 
                 nes_cpu_registers.Cycles = 5; 
                 break;
             case PHP_IMP:   
-                get_operand_AM(IMP); 
                 PHP();
                 nes_cpu_registers.Cycles = 3; 
                 break;
             case ORA_IMM:   
-                get_operand_AM(IMM);
                 ORA(); 
                 nes_cpu_registers.Cycles = 2; 
                 break;
             case ASL_ACC:   
-                get_operand_AM(ACC); 
                 ASL();
                 nes_cpu_registers.A = nes_cpu_bus.DB;
                  
                 nes_cpu_registers.Cycles = 2; 
                 break;
             case ORA_ABS:   
-                get_operand_AM(ABS);
                 ORA(); 
                 nes_cpu_registers.Cycles = 4; 
                 break;
             case ASL_ABS:   
-                get_operand_AM(ABS);
                 ASL();
                 nes_cpu_registers.Cycles = 6; 
                 break;
             case BPL_REL:   
-                get_operand_AM(REL); 
                 BPL();
                 nes_cpu_registers.Cycles = 2; 
                 break;
             case ORA_INDY:  
-                get_operand_AM(INDY); 
                 ORA();
                 nes_cpu_registers.Cycles += 5; 
                 break;
             case ORA_ZPX:   
-                get_operand_AM(ZPX); 
                 ORA();
                 nes_cpu_registers.Cycles = 4; 
                 break;
             case ASL_ZPX:   
-                get_operand_AM(ZPX); 
                 ASL();
                 nes_cpu_registers.Cycles = 6; 
                 break;
             case CLC_IMP:   
-                get_operand_AM(IMP); 
                 CLC();
                 nes_cpu_registers.Cycles = 2; 
                 break;
             case ORA_ABSY:  
-                get_operand_AM(ABSY); 
                 ORA();
                 nes_cpu_registers.Cycles += 4; 
                 break;
             case ORA_ABSX:  
-                get_operand_AM(ABSX); 
                 ORA();
                 nes_cpu_registers.Cycles += 4; 
                 break;
             case ASL_ABSX:  
-                get_operand_AM(ABSX); 
                 ASL();
                 nes_cpu_registers.Cycles = 7; 
                 break;
             case JSR_ABS:   
-                get_operand_AM(ABS); 
                 JSR();
                 nes_cpu_registers.Cycles = 6; 
                 break;
             case AND_INDX:  
-                get_operand_AM(INDX); 
                 AND();
                 nes_cpu_registers.Cycles = 6; 
                 break;
             case BIT_ZP:    
-                get_operand_AM(ZP); 
                 BIT();
                 nes_cpu_registers.Cycles = 3; 
                 break;
             case AND_ZP:    
-                get_operand_AM(ZP); 
                 AND();
                 nes_cpu_registers.Cycles = 3; 
                 break;
             case ROL_ZP:    
-                get_operand_AM(ZP); 
                 ROL();
                 nes_cpu_registers.Cycles = 5; 
                 break;
             case PLP_IMP:   
-                get_operand_AM(IMP);
                 PLP();
                 nes_cpu_registers.Cycles = 4; 
                 break;
             case AND_IMM:   
-                get_operand_AM(IMM); 
                 AND();
                 nes_cpu_registers.Cycles = 2; 
                 break;
             case ROL_ACC:   
-                get_operand_AM(ACC);
                 ROL(); 
                 nes_cpu_registers.A = nes_cpu_bus.DB;
                  
                 nes_cpu_registers.Cycles = 2; 
                 break;
             case BIT_ABS:   
-                get_operand_AM(ABS); 
                 BIT();
                 nes_cpu_registers.Cycles = 4; 
                 break;
             case AND_ABS:   
-                get_operand_AM(ABS); 
                 AND();
                 nes_cpu_registers.Cycles = 4; 
                 break;
             case ROL_ABS:   
-                get_operand_AM(ABS); 
                 ROL();
                 nes_cpu_registers.Cycles = 6; 
                 break;
             case BMI_REL:   
-                get_operand_AM(REL); 
                 BMI();
                 nes_cpu_registers.Cycles = 2; 
                 break;
             case AND_INDY:  
-                get_operand_AM(INDY); 
                 AND();
                 nes_cpu_registers.Cycles += 5; 
                 break;
             case AND_ZPX:   
-                get_operand_AM(ZPX); 
                 AND();
                 nes_cpu_registers.Cycles = 4; 
                 break;
             case ROL_ZPX:   
-                get_operand_AM(ZPX); 
                 ROL();
                 nes_cpu_registers.Cycles = 6; 
                 break;
             case SEC_IMP:   
-                get_operand_AM(IMP);
                 SEC();
                 nes_cpu_registers.Cycles = 2; 
                 break;
             case AND_ABSY:  
-                get_operand_AM(ABSY); 
                 AND();
                 nes_cpu_registers.Cycles += 4; 
                 break;
             case AND_ABSX:  
-                get_operand_AM(ABSX); 
                 AND();
                 nes_cpu_registers.Cycles += 4; 
                 break;
             case ROL_ABSX:  
-                get_operand_AM(ABSX); 
                 ROL();
                 nes_cpu_registers.Cycles = 7; 
                 break;
             case RTI_IMP:   
-                get_operand_AM(IMP);
                 RTI();
                 nes_cpu_registers.Cycles = 6;
                 break;
             case EOR_INDX:  
-                get_operand_AM(INDX); 
                 EOR();
                 nes_cpu_registers.Cycles = 6; 
                 break;
             case EOR_ZP:    
-                get_operand_AM(ZP); 
                 EOR();
                 nes_cpu_registers.Cycles = 3; 
                 break;
             case LSR_ZP:    
-                get_operand_AM(ZP); 
                 LSR();
                 nes_cpu_registers.Cycles = 5; 
                 break;
             case PHA_IMP:  
-                get_operand_AM(IMP); 
                 PHA();
                 nes_cpu_registers.Cycles = 3;
                 break;
             case EOR_IMM:   
-                get_operand_AM(IMM); 
                 EOR();
                 nes_cpu_registers.Cycles = 2; 
                 break;
             case LSR_ACC:   
-                get_operand_AM(ACC);
                 LSR(); 
                 nes_cpu_registers.A = nes_cpu_bus.DB;
                  
                 nes_cpu_registers.Cycles = 2; 
                 break;
             case JMP_ABS:   
-                get_operand_AM(ABS); 
                 JMP();
                 nes_cpu_registers.Cycles = 3; 
                 break;
             case EOR_ABS:   
-                get_operand_AM(ABS); 
                 EOR();
                 nes_cpu_registers.Cycles = 4; 
                 break;
             case LSR_ABS:   
-                get_operand_AM(ABS); 
                 LSR();
                 nes_cpu_registers.Cycles = 6; 
                 break;
             case BVC_REL:   
-                get_operand_AM(REL); 
                 BVC();
                 nes_cpu_registers.Cycles += 2; 
                 break;
             case EOR_INDY:  
-                get_operand_AM(INDY); 
                 EOR();
                 nes_cpu_registers.Cycles += 5; 
                 break;
             case EOR_ZPX:   
-                get_operand_AM(ZPX); 
                 EOR();
                 nes_cpu_registers.Cycles = 4; 
                 break;
             case LSR_ZPX:   
-                get_operand_AM(ZPX); 
                 LSR();
                 nes_cpu_registers.Cycles = 6; 
                 break;
             case CLI_IMP:   
-                get_operand_AM(IMP);
                 CLI();
                 nes_cpu_registers.Cycles = 2;
                 break;
             case EOR_ABSY:  
-                get_operand_AM(ABSY); 
                 EOR();
                 nes_cpu_registers.Cycles += 4; 
                 break;
             case EOR_ABSX:  
-                get_operand_AM(ABSX); 
                 EOR();
                 nes_cpu_registers.Cycles += 4; 
                 break;
             case LSR_ABSX:  
-                get_operand_AM(ABSX); 
                 LSR();
                 nes_cpu_registers.Cycles = 7; 
                 break;
             case RTS_IMP:   
-                get_operand_AM(IMP);
                 RTS();
                 nes_cpu_registers.Cycles = 6;
                 break;
             case ADC_INDX:  
-                get_operand_AM(INDX); 
                 ADC();
                 nes_cpu_registers.Cycles = 6; 
                 break;
             case ADC_ZP:    
-                get_operand_AM(ZP); 
                 ADC();
                 nes_cpu_registers.Cycles = 3; 
                 break;
             case ROR_ZP:    
-                get_operand_AM(ZP); 
                 ROR();
                 nes_cpu_registers.Cycles = 5; 
                 break;
             case PLA_IMP:   
-                get_operand_AM(IMP);
                 PLA();
                 nes_cpu_registers.Cycles = 4;
                 break;
             case ADC_IMM:   
-                get_operand_AM(IMM); 
                 ADC();
                 nes_cpu_registers.Cycles = 2; 
                 break;
             case ROR_ACC:   
-                get_operand_AM(ACC);
                 ROR(); 
                 nes_cpu_registers.A = nes_cpu_bus.DB;
                  
                 nes_cpu_registers.Cycles = 2; 
                 break;
             case JMP_IND: 
-                get_operand_AM(IND); 
                 JMP();
                 nes_cpu_registers.Cycles = 5; 
                 break;
             case ADC_ABS:   
-                get_operand_AM(ABS); 
                 ADC();
                 nes_cpu_registers.Cycles = 4; 
                 break;
             case ROR_ABS:   
-                get_operand_AM(ABS); 
                 ROR();
                 nes_cpu_registers.Cycles = 6; 
                 break;
             case BVS_REL:   
-                get_operand_AM(REL); 
                 BVS();
                 nes_cpu_registers.Cycles += 2; 
                 break;
             case ADC_INDY:  
-                get_operand_AM(INDY); 
                 ADC();
                 nes_cpu_registers.Cycles += 5; 
                 break;
             case ADC_ZPX:   
-                get_operand_AM(ZPX); 
                 ADC();
                 nes_cpu_registers.Cycles = 4; 
                 break;
             case ROR_ZPX:   
-                get_operand_AM(ZPX); 
                 ROR();
                 nes_cpu_registers.Cycles = 6; 
                 break;
             case SEI_IMP:   
-                get_operand_AM(IMP);
                 SEI();
                 nes_cpu_registers.Cycles = 2;
                 break;
             case ADC_ABSY:  
-                get_operand_AM(ABSY); 
                 ADC();
                 nes_cpu_registers.Cycles += 4; 
                 break;
             case ADC_ABSX:  
-                get_operand_AM(ABSX); 
                 ADC();
                 nes_cpu_registers.Cycles += 4; 
                 break;
             case ROR_ABSX:  
-                get_operand_AM(ABSX); 
                 ROR();
                 nes_cpu_registers.Cycles = 7; 
                 break;
             case STA_INDX:  
-                get_operand_AM(INDX); 
                 STA();
                 nes_cpu_registers.Cycles = 6; 
                 break;
             case STY_ZP:    
-                get_operand_AM(ZP); 
                 STY();
                 nes_cpu_registers.Cycles = 3; 
                 break;
             case STA_ZP:    
-                get_operand_AM(ZP); 
                 STA();
                 nes_cpu_registers.Cycles = 3; 
                 break;
             case STX_ZP:    
-                get_operand_AM(ZP); 
                 STX();
                 nes_cpu_registers.Cycles = 3; 
                 break;
             case DEY_IMP:   
-                get_operand_AM(IMP);
                 DEY();
                 nes_cpu_registers.Cycles = 2;
                 break;
             case TXA_IMP:   
-                get_operand_AM(IMP);
                 TXA();
                 nes_cpu_registers.Cycles = 2;
                 break;
             case STY_ABS:   
-                get_operand_AM(ABS); 
                 STY();
                 nes_cpu_registers.Cycles = 4; 
                 break;
             case STA_ABS:   
-                get_operand_AM(ABS); 
                 STA();
                 nes_cpu_registers.Cycles = 4; 
                 break;
             case STX_ABS:   
-                get_operand_AM(ABS); 
                 STX();
                 nes_cpu_registers.Cycles = 4; 
                 break;
             case BCC_REL:   
-                get_operand_AM(REL); 
                 BCC();
                 nes_cpu_registers.Cycles = 2; 
                 break;
             case STA_INDY:  
-                get_operand_AM(INDY); 
                 STA();
                 nes_cpu_registers.Cycles = 6; 
                 break;
             case STY_ZPX:   
-                get_operand_AM(ZPX); 
                 STY();
                 nes_cpu_registers.Cycles = 4; 
                 break;
             case STA_ZPX:   
-                get_operand_AM(ZPX); 
                 STA();
                 nes_cpu_registers.Cycles = 4; 
                 break;
             case STX_ZPY:   
-                get_operand_AM(ZPY); 
                 STX();
                 nes_cpu_registers.Cycles = 4; 
                 break;
             case TYA_IMP:   
-                get_operand_AM(IMP);
                 TYA();
                 nes_cpu_registers.Cycles = 2;
                 break;
             case STA_ABSY:  
-                get_operand_AM(ABSY); 
                 STA();
                 nes_cpu_registers.Cycles = 5; 
                 break;
             case TXS_IMP:   
-                get_operand_AM(IMP);
                 TXS();
                 nes_cpu_registers.Cycles = 2;
                 break;
             case STA_ABSX:  
-                get_operand_AM(ABSX); 
                 STA();
                 nes_cpu_registers.Cycles = 5; 
                 break;
             case LDY_IMM:   
-                get_operand_AM(IMM); 
+                 
                 LDY();
                 nes_cpu_registers.Cycles = 2; 
                 break;
             case LDA_INDX:  
-                get_operand_AM(INDX); 
+                 
                 LDA();
                 nes_cpu_registers.Cycles = 6; 
                 break;
             case LDX_IMM:   
-                get_operand_AM(IMM); 
+                 
                 LDX();
                 nes_cpu_registers.Cycles = 2; 
                 break;
             case LDY_ZP:    
-                get_operand_AM(ZP); 
+                 
                 LDY();
                 nes_cpu_registers.Cycles = 3; 
                 break;
             case LDA_ZP:    
-                get_operand_AM(ZP); 
+                 
                 LDA();
                 nes_cpu_registers.Cycles = 3; 
                 break;
             case LDX_ZP:    
-                get_operand_AM(ZP); 
+                 
                 LDX();
                 nes_cpu_registers.Cycles = 3; 
                 break;
             case TAY_IMP:   
-                get_operand_AM(IMP);
+                
                 TAY();
                 nes_cpu_registers.Cycles = 2;
                 break;
             case LDA_IMM:   
-                get_operand_AM(IMM); 
+                 
                 LDA();
                 nes_cpu_registers.Cycles = 2; 
                 break;
             case TAX_IMP:   
-                get_operand_AM(IMP);
+                
                 TAX();
                 nes_cpu_registers.Cycles = 2; 
                 break;
             case LDY_ABS:   
-                get_operand_AM(ABS); 
+                 
                 LDY();
                 nes_cpu_registers.Cycles = 4; 
                 break;
             case LDA_ABS:   
-                get_operand_AM(ABS); 
+                 
                 LDA();
                 nes_cpu_registers.Cycles = 4; 
                 break;
             case LDX_ABS:   
-                get_operand_AM(ABS); 
+                 
                 LDX();
                 nes_cpu_registers.Cycles = 4; 
                 break;
             case BCS_REL:   
-                get_operand_AM(REL); 
+                 
                 BCS();
                 nes_cpu_registers.Cycles = 2; 
                 break;
             case LDA_INDY:  
-                get_operand_AM(INDY); 
+                 
                 LDA();
                 nes_cpu_registers.Cycles += 5; 
                 break;
             case LDY_ZPX:   
-                get_operand_AM(ZPX); 
+                 
                 LDY();
                 nes_cpu_registers.Cycles = 4; 
                 break;
             case LDA_ZPX:   
-                get_operand_AM(ZPX); 
+                 
                 LDA();
                 nes_cpu_registers.Cycles = 4; 
                 break;
             case LDX_ZPY:   
-                get_operand_AM(ZPY); 
+                 
                 LDX();
                 nes_cpu_registers.Cycles = 4; 
                 break;
             case CLV_IMP:   
-                get_operand_AM(IMP); 
+                 
                 CLV();
                 nes_cpu_registers.Cycles = 2; 
                 break;
             case LDA_ABSY:  
-                get_operand_AM(ABSY); 
+                 
                 LDA();
                 nes_cpu_registers.Cycles += 4; 
                 break;
             case TSX_IMP:   
                 TSX();
                 nes_cpu_registers.Cycles = 2;
-                nes_cpu_registers.PC += 1; 
                 break;
             case LDY_ABSX:  
-                get_operand_AM(ABSX); 
+                 
                 LDY();
                 nes_cpu_registers.Cycles += 4; 
                 break;
             case LDA_ABSX:  
-                get_operand_AM(ABSX); 
+                 
                 LDA();
                 nes_cpu_registers.Cycles += 4; 
                 break;
             case LDX_ABSY:  
-                get_operand_AM(ABSY); 
+                 
                 LDX();
                 nes_cpu_registers.Cycles += 4; 
                 break;
             case CPY_IMM:   
-                get_operand_AM(IMM); 
+                 
                 CPY();
                 nes_cpu_registers.Cycles = 2; 
                 break;
             case CMP_INDX:  
-                get_operand_AM(INDX); 
                 CMP();
                 nes_cpu_registers.Cycles = 6; 
                 break;
             case CPY_ZP:    
-                get_operand_AM(ZP); 
+                 
                 CPY();
                 nes_cpu_registers.Cycles = 3; 
                 break;
             case CMP_ZP:    
-                get_operand_AM(ZP); 
+                 
                 CMP();
                 nes_cpu_registers.Cycles = 3; 
                 break;
             case DEC_ZP:    
-                get_operand_AM(ZP); 
+                 
                 DEC();
                 nes_cpu_registers.Cycles = 5; 
                 break;
             case INY_IMP:   
-                get_operand_AM(IMP); 
+                 
                 INY();
                 nes_cpu_registers.Cycles = 2; 
                 break;
             case CMP_IMM:   
-                get_operand_AM(IMM); 
+                 
                 CMP();
                 nes_cpu_registers.Cycles = 2; 
                 break;
             case DEX_IMP:   
-                get_operand_AM(IMP); 
+                 
                 DEX();
                 nes_cpu_registers.Cycles = 2; 
                 break;
             case CPY_ABS:   
-                get_operand_AM(ABS); 
+                 
                 CPY();
                 nes_cpu_registers.Cycles = 4; 
                 break;
             case CMP_ABS:   
-                get_operand_AM(ABS); 
+                 
                 CMP();
                 nes_cpu_registers.Cycles = 4; 
                 break;
             case DEC_ABS:   
-                get_operand_AM(ABS); 
                 DEC();
                 nes_cpu_registers.Cycles = 6; 
                 break;
             case BNE_REL:   
-                get_operand_AM(REL); 
                 BNE();
                 nes_cpu_registers.Cycles = 2; 
                 break;
             case CMP_INDY:  
-                get_operand_AM(INDY); 
                 CMP();
                 nes_cpu_registers.Cycles += 5; 
                 break;
             case CMP_ZPX:   
-                get_operand_AM(ZPX); 
                 CMP();
                 nes_cpu_registers.Cycles = 4; 
                 break;
             case DEC_ZPX:   
-                get_operand_AM(ZPX); 
                 DEC();
                 nes_cpu_registers.Cycles = 6; 
                 break;
             case CLD_IMP:   
-                get_operand_AM(IMP); 
                 CLD();
                 nes_cpu_registers.Cycles = 2; 
                 break;
             case CMP_ABSY:  
-                get_operand_AM(ABSY); 
                 CMP();
                 nes_cpu_registers.Cycles += 4; 
                 break;
             case CMP_ABSX:  
-                get_operand_AM(ABSX); 
                 CMP();
                 nes_cpu_registers.Cycles += 4; 
                 break;
             case DEC_ABSX:  
-                get_operand_AM(ABSX); 
                 DEC();
                 nes_cpu_registers.Cycles = 7; 
                 break;
             case CPX_IMM:   
-                get_operand_AM(IMM); 
                 CPX();
                 nes_cpu_registers.Cycles = 2; 
                 break;
             case SBC_INDX:  
-                get_operand_AM(INDX); 
                 SBC();
                 nes_cpu_registers.Cycles = 6; 
                 break;
             case CPX_ZP:    
-                get_operand_AM(ZP); 
                 CPX();
                 nes_cpu_registers.Cycles = 3; 
                 break;
             case SBC_ZP:    
-                get_operand_AM(ZP); 
                 SBC();
                 nes_cpu_registers.Cycles = 3; 
                 break;
             case INC_ZP:    
-                get_operand_AM(ZP); 
                 INC();
                 nes_cpu_registers.Cycles = 5; 
                 break;
             case INX_IMP:   
-                get_operand_AM(IMP); 
                 INX();
                 nes_cpu_registers.Cycles = 2; 
                 break;
             case SBC_IMM:   
-                get_operand_AM(IMM); 
                 SBC();
                 nes_cpu_registers.Cycles = 2; 
                 break;
             case NOP_IMP:   
-                get_operand_AM(IMP); 
                 NOP();
                 nes_cpu_registers.Cycles = 2; 
                 break;
             case CPX_ABS:   
-                get_operand_AM(ABS); 
                 CPX();
                 nes_cpu_registers.Cycles = 4; 
                 break;
             case SBC_ABS:   
-                get_operand_AM(ABS); 
                 SBC();
                 nes_cpu_registers.Cycles = 4; 
                 break;
             case INC_ABS:   
-                get_operand_AM(ABS); 
                 INC();
                 nes_cpu_registers.Cycles = 6; 
                 break;
             case BEQ_REL:   
-                get_operand_AM(REL); 
                 BEQ();
                 nes_cpu_registers.Cycles = 2; 
                 break;
             case SBC_INDY:  
-                get_operand_AM(INDY); 
                 SBC();
                 nes_cpu_registers.Cycles += 5; 
                 break;
             case SBC_ZPX:   
-                get_operand_AM(ZPX); 
                 SBC();
                 nes_cpu_registers.Cycles = 4; 
                 break;
             case INC_ZPX:   
-                get_operand_AM(ZPX); 
                 INC();
                 nes_cpu_registers.Cycles = 6; 
                 break;
             case SED_IMP:   
-                get_operand_AM(IMP);
                 SED();
                 nes_cpu_registers.Cycles = 2;
                 break;
             case SBC_ABSY:  
-                get_operand_AM(ABSY); 
                 SBC();
                 nes_cpu_registers.Cycles += 4; 
                 break;
             case SBC_ABSX:  
-                get_operand_AM(ABSX); 
                 SBC();
                 nes_cpu_registers.Cycles += 4; 
                 break;
-            case INC_ABSX:  
-                get_operand_AM(ABSX); 
+            case INC_ABSX:   
                 INC();
                 nes_cpu_registers.Cycles = 7; 
                 break;
@@ -962,20 +953,28 @@ void interpret()
         nes_cpu_registers.PC += PC_offset;
         
         /* The clock of the emulator, for timing purposes */
-        CPU_tick();
+        tick();
     
-        /* For debug purposes only, print contents of registers */
-        print_opcode(opcode);
-        printf("A:%02X", nes_cpu_registers.A);
-        printf(" X:%02X", nes_cpu_registers.X);
-        printf(" Y:%02X", nes_cpu_registers.Y);
-        printf(" P:%02X",  nes_cpu_registers.S);
-        printf(" SP:%02X", nes_cpu_registers.SP);
-        printf(" PC:%04X", nes_cpu_registers.PC);
-        printf(" ADDR:%04X", nes_cpu_bus.AB);
-        printf(" DB:%02X\n", nes_cpu_bus.DB);
         
-        if ( Break_and_die )  { return; }
+        /* Check if time to update display */
+        if ( nes_ppu.s == 240 && nes_ppu.c == 0 )
+        {
+            for (size_t i = 0; i < 240; i++)
+                write_ARGB8888_arr_to_display(disp, 0, i, &nes_ppu.screen_buffer[(i * 360) + 1], 256, 1);
+            
+            push_to_display(disp);
+        }
+
+        on_event(&exit_code);
+
+        //PPU_pattern_table_dump(PPU_debug, 0);   /* Debug functions to display pattern + pallete table data of PPU */
+        //PPU_pallete_table_dump(PPU_debug);
+        //push_to_display(PPU_debug);
+
+        update_display(disp);
+        //update_display(PPU_debug);
+
+        if ( Break_and_die )  {  return;  }
     }
 }
 
@@ -983,14 +982,13 @@ void interpret()
 int main(int argc, char** argv)
 {
     /* TO-DO: 
-        1. add timing (akin to Wait() function)
         2. add checks for page boundary crossing
         3. add option to dump NES memory 
-        4. properly replicate NES memory layout
     */
 
-    /* Zero out registers, init CPU */
+    /* Zero out registers, init CPU, init PPU */
     nes_init_cpu();
+    nes_init_ppu();
 
     /* Check if only one argument after file name */    
     if (argc != 2) 
@@ -1007,7 +1005,22 @@ int main(int argc, char** argv)
         }
     }
 
+    /* Create a new display */
+    Display nes_window;
+    //Display PPU_debug;
+    init_display(&nes_window, argv[1], 256, 240);
+    //create_display(&PPU_debug, "PPU pattern table dump", 256, 256);
+
+    /* Init opcode table */
+    nes_2A02_init_map();
+
     /* Begin interpreter */
-    interpret();
+    interpret(&nes_window, NULL);
+
+    free_display(&nes_window);
+    //free_display(&PPU_debug);
+    
+    SDL_Quit();
+
     print_zp();
 }

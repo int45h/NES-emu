@@ -18,7 +18,7 @@ typedef struct Display
 
     const char      * title;
     size_t          width, height, pitch;
-    uint32_t        * framebuffer;
+    uint8_t         * framebuffer;
 }
 Display;
 
@@ -50,35 +50,50 @@ void create_display(Display * disp, const char * window_title, size_t width, siz
     disp->width     = width; 
     disp->height    = height;
 
-    /* Set 32-bit framebuffer (0xAARRGGBB) */
-    disp->framebuffer = (uint32_t *) calloc(width*height, sizeof(uint32_t));
-
     /* Set surface, texture, colordepth */
     disp->surface   = SDL_CreateRGBSurfaceWithFormat(0, width, height, 32, SDL_PIXELFORMAT_ARGB8888);
     disp->texture   = SDL_CreateTextureFromSurface(disp->renderer, disp->surface);
 
     /* Set render target and draw color (black) */
     SDL_SetRenderTarget(disp->renderer, disp->texture);
-    SDL_SetRenderDrawColor(disp->renderer, 0, 0, 0, 0);
+    SDL_SetRenderDrawColor(disp->renderer, 0, 0, 0, 0xFF);
 
     /* Get pitch */
     disp->format    = SDL_AllocFormat(SDL_PIXELFORMAT_ARGB8888);
     disp->pitch     = disp->surface->pitch;
 
+    /* Set framebuffer */
+    disp->framebuffer = (uint8_t *) disp->surface->pixels;
+
     /* Clear screen */
     SDL_RenderClear(disp->renderer);
 }
 
-/* Copy fb to texture */
-void copy_to_display(Display * disp, uint32_t * fb)
+/* Write pixel to display */
+void write_ARGB8888_pixel_to_display(Display * disp, size_t x, size_t y, uint32_t pixel)
 {
-    //int pitch = disp->width * 4;
-    SDL_LockSurface(disp->surface);
-    memcpy(disp->surface->pixels, fb, disp->width * disp->height * sizeof(uint32_t));
+    x %= disp->width;
+    y %= disp->height;
     
-    SDL_UnlockSurface(disp->surface);
-    disp->texture = SDL_CreateTextureFromSurface(disp->renderer, disp->surface);
+    *((uint32_t*)&disp->framebuffer[(y * disp->pitch) + (x * sizeof(uint32_t))]) = pixel;
+    disp->framebuffer = (uint8_t*)disp->surface->pixels;
+}
 
+/* Write pixel array to display */
+void write_ARGB8888_arr_to_display(Display * disp, size_t x, size_t y, uint32_t * pixel_stream, size_t w, size_t h)
+{
+    x %= disp->width;
+    y %= disp->height;
+
+    for (size_t i = 0; i < h; i++)
+        memcpy((void *)&disp->framebuffer[((y + i) * disp->pitch) + (x * sizeof(uint32_t))], (void *)&pixel_stream[i * w], w * sizeof(uint32_t));
+
+}
+
+/* Push any changes to display */
+void push_to_display(Display * disp)
+{
+    disp->texture = SDL_CreateTextureFromSurface(disp->renderer, disp->surface);
     SDL_RenderCopy(disp->renderer, disp->texture, NULL, NULL);
 }
 
@@ -91,7 +106,7 @@ void update_display(Display * disp)
 /* Destroy display object */
 void free_display(Display * disp)
 {
-    free(disp->framebuffer);
+    disp->framebuffer = NULL;
 
     SDL_DestroyTexture(disp->texture);
     SDL_DestroyRenderer(disp->renderer);
@@ -115,6 +130,9 @@ void on_event(int * i)
                     return;
                 }
                 break;
+            case SDL_QUIT:
+                *i = -2;
+                return;
         }
     }
 }
@@ -130,4 +148,10 @@ void main_loop(Display * disp)
     }
     free_display(disp);
     SDL_Quit();
+}
+
+/* A simple wait function (TO-DO: don't use SDL_Delay) */
+void wait(uint32_t msec)
+{
+    SDL_Delay(msec);
 }

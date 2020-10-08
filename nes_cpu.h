@@ -3,8 +3,6 @@
 #include <stdbool.h> 
 #include <stdint.h>
 
-#include "nes_cartridge.h"
-
 /* Program Counter Offset, how much to increment it by after using the appropriate addressing mode */ 
 int8_t PC_offset;
 
@@ -102,6 +100,24 @@ typedef enum nes_cpu_addr_modes
     NONE
 }
 nes_cpu_addr_modes;
+
+/* String containing all addressing modes */
+const char * addr_mode_str[14] = {
+    "ABSX",
+    "ABSY",
+    "INDX",
+    "INDY",
+    "ZPX",
+    "ZPY",
+    "ACC",
+    "IMM",
+    "ZP",
+    "ABS",
+    "REL",
+    "IND",
+    "IMP",
+    "NONE"
+};
 
 /* Opcodes for the NES (Incomplete) */
 typedef enum nes_cpu_opcodes
@@ -260,270 +276,185 @@ typedef enum nes_cpu_opcodes
 }
 nes_cpu_opcodes;
 
-/* Opcode list in string form (for debug) */
-const char * nes_cpu_opcode_str[256] = {
-    "(IMP)      BRK",
-    "(INDX)     ORA",
-    "???",  
-    "???",  
-    "???",  
-    "(ZP)       ORA",
-    "(ZP)       ASL",
-    "???",  
-    "(IMP)      PHP",
-    "(IMM)      ORA",
-    "(ACC)      ASL",
-    "???",  
-    "???",  
-    "(ABS)      ORA",
-    "(ABS)      ASL",
-    "???",  
-    "(REL)      BPL",
-    "(INDY)     ORA",
-    "???",  
-    "???",  
-    "???",  
-    "(ZPX)      ORA",
-    "(ZPX)      ASL",
-    "???",  
-    "(IMP)      CLC",
-    "(ABSY)     ORA",
-    "???",  
-    "???",  
-    "???",  
-    "(ABSX)     ORA",
-    "(ABSX)     ASL",
-    "???",  
-    "(ABS)      JSR",
-    "(INDX)     AND",
-    "???",  
-    "???",  
-    "(ZP)       BIT",
-    "(ZP)       AND",
-    "(ZP)       ROL",
-    "???",  
-    "(IMP)      PLP",
-    "(IMM)      AND",
-    "(ACC)      ROL",
-    "???",  
-    "(ABS)      BIT",
-    "(ABS)      AND",
-    "(ABS)      ROL",
-    "???",  
-    "(REL)      BMI",
-    "(INDY)     AND",
-    "???",  
-    "???",  
-    "???",  
-    "(ZPX)      AND",
-    "(ZPX)      ROL",
-    "???",  
-    "(IMP)      SEC",
-    "(ABSY)     AND",
-    "???",  
-    "???",  
-    "???",  
-    "(ABSX)     AND",
-    "(ABSX)     ROL",
-    "???",  
-    "(IMP)      RTI",
-    "(INDX)     EOR",
-    "???",  
-    "???",  
-    "???",  
-    "(ZP)       EOR",
-    "(ZP)       LSR",
-    "???",  
-    "(IMP)      PHA",
-    "(IMM)      EOR",
-    "(ACC)      LSR",
-    "???",      
-    "(ABS)      JMP",
-    "(ABS)      EOR",
-    "(ABS)      LSR",
-    "???",      
-    "(REL)      BVC",
-    "(INDY)     EOR",
-    "???",      
-    "???",      
-    "???",      
-    "(ZPX)      EOR",
-    "(ZPX)      LSR",
-    "???",      
-    "(IMP)      CLI",
-    "(ABSY)     EOR",
-    "???",      
-    "???",      
-    "???",      
-    "(ABSX)     EOR",
-    "(ABSX)     LSR",
-    "???",      
-    "(IMP)      RTS",
-    "(INDX)     ADC",
-    "???",      
-    "???",      
-    "???",      
-    "(ZP)       ADC",
-    "(ZP)       ROR",
-    "???",      
-    "(IMP)      PLA",
-    "(IMM)      ADC",
-    "(ACC)      ROR",
-    "???",      
-    "(IND)    JMP",
-    "(ABS)      ADC",
-    "(ABS)      ROR",
-    "???",      
-    "(REL)      BVS",
-    "(INDY)     ADC",
-    "???",      
-    "???",      
-    "???",      
-    "(ZPX)      ADC",
-    "(ZPX)      ROR",
-    "???",      
-    "(IMP)      SEI",
-    "(ABSY)     ADC",
-    "???",      
-    "???",      
-    "???",      
-    "(ABSX)     ADC",
-    "(ABSX)     ROR",
-    "???",      
-    "???",      
-    "(INDX)     STA",
-    "???",      
-    "???",      
-    "(ZP)       STY",
-    "(ZP)       STA",
-    "(ZP)       STX",
-    "???",      
-    "(IMP)      DEY",
-    "???",      
-    "(IMP)      TXA",
-    "???",      
-    "(ABS)      STY",
-    "(ABS)      STA",
-    "(ABS)      STX",
-    "???",      
-    "(REL)      BCC",
-    "(INDY)     STA",
-    "???",      
-    "???",      
-    "(ZPX)      STY",
-    "(ZPX)      STA",
-    "(ZPY)      STX",
-    "???",      
-    "(IMP)      TYA",
-    "(ABSY)     STA",
-    "(IMP)      TXS",
-    "???",      
-    "???",      
-    "(ABSX)     STA",
-    "???",      
-    "???",      
-    "(IMM)      LDY",
-    "(INDX)     LDA",
-    "(IMM)      LDX",
-    "???",      
-    "(ZP)       LDY",
-    "(ZP)       LDA",
-    "(ZP)       LDX",
-    "???",      
-    "(IMP)      TAY",
-    "(IMM)      LDA",
-    "(IMP)      TAX",
-    "???",      
-    "(ABS)      LDY",
-    "(ABS)      LDA",
-    "(ABS)      LDX",
-    "???",      
-    "(REL)      BCS",
-    "(INDY)     LDA",
-    "???",      
-    "???",      
-    "(ZPX)      LDY",
-    "(ZPX)      LDA",
-    "(ZPY)      LDX",
-    "???",      
-    "(IMP)      CLV",
-    "(ABSY)     LDA",
-    "(IMP)      TSX",
-    "???",      
-    "(ABSX)     LDY",
-    "(ABSX)     LDA",
-    "(ABSY)     LDX",
-    "???",      
-    "(IMM)      CPY",
-    "(INDX)     CMP",
-    "???",      
-    "???",      
-    "(ZP)       CPY",
-    "(ZP)       CMP",
-    "(ZP)       DEC",
-    "???",      
-    "(IMP)      INY",
-    "(IMM)      CMP",
-    "(IMP)      DEX",
-    "???",      
-    "(ABS)      CPY",
-    "(ABS)      CMP",
-    "(ABS)      DEC",
-    "???",      
-    "(REL)      BNE",
-    "(INDY)     CMP",
-    "???",      
-    "???",      
-    "???",      
-    "(ZPX)      CMP",
-    "(ZPX)      DEC",
-    "???",      
-    "(IMP)      CLD",
-    "(ABSY)     CMP",
-    "???",      
-    "???",      
-    "???",      
-    "(ABSX)     CMP",
-    "(ABSX)     DEC",
-    "???",      
-    "(IMM)      CPX",
-    "(INDX)     SBC",
-    "???",      
-    "???",      
-    "(ZP)       CPX",
-    "(ZP)       SBC",
-    "(ZP)       INC",
-    "???",      
-    "(IMP)      INX",
-    "(IMM)      SBC",
-    "(IMP)      NOP",
-    "???",      
-    "(ABS)      CPX",
-    "(ABS)      SBC",
-    "(ABS)      INC",
-    "???",      
-    "(REL)      BEQ",
-    "(INDY)     SBC",
-    "???",      
-    "???",      
-    "???",      
-    "(ZPX)      SBC",
-    "(ZPX)      INC",
-    "???",      
-    "(IMP)      SED",
-    "(ABSY)     SBC",
-    "???",      
-    "???",      
-    "???",      
-    "(ABSX)     SBC",
-    "(ABSX)     INC",
-    "???",      
-};
+/* Opcode map (includes opcode, addressing mode, and mnemonic) */
+typedef struct _2A02_cpu_opcode_map
+{
+    uint8_t     AM;
+    const char  * mnemonic;
+}
+_2A02_cpu_opcode_map;
+_2A02_cpu_opcode_map nes_2A02_cpu_opcode_map[256];
 
 /* Instantiating structs for CPU bus, memory, and registers*/
 _6502_cpu_bus        nes_cpu_bus;
 _6502_cpu_mem        nes_cpu_mem;
 _6502_cpu_registers  nes_cpu_registers;
+
+/* Cartridge data here UwU */
+#include "nes_cartridge.h"
+
+/* Initialize opcode map */
+static inline void nes_2A02_init_map()
+{
+    /* init to all NULL values */
+    for (size_t i = 0; i < 256; i++)
+    {
+        nes_2A02_cpu_opcode_map[i] = (_2A02_cpu_opcode_map){NONE, "???"};
+    }
+
+    /* Set adressing mode and mnemonic for each opcode */
+    nes_2A02_cpu_opcode_map[BRK_IMP] =  (_2A02_cpu_opcode_map){.AM = IMP,     .mnemonic = "BRK"};
+    nes_2A02_cpu_opcode_map[ORA_INDX] = (_2A02_cpu_opcode_map){.AM = INDX,    .mnemonic = "ORA"};
+    nes_2A02_cpu_opcode_map[ORA_ZP] =   (_2A02_cpu_opcode_map){.AM = ZP,      .mnemonic = "ORA"};
+    nes_2A02_cpu_opcode_map[ASL_ZP] =   (_2A02_cpu_opcode_map){.AM = ZP,      .mnemonic = "ASL"};
+    nes_2A02_cpu_opcode_map[PHP_IMP] =  (_2A02_cpu_opcode_map){.AM = IMP,     .mnemonic = "PHP"};
+    nes_2A02_cpu_opcode_map[ORA_IMM] =  (_2A02_cpu_opcode_map){.AM = IMM,     .mnemonic = "ORA"};
+    nes_2A02_cpu_opcode_map[ASL_ACC] =  (_2A02_cpu_opcode_map){.AM = ACC,     .mnemonic = "ASL"};
+    nes_2A02_cpu_opcode_map[ORA_ABS] =  (_2A02_cpu_opcode_map){.AM = ABS,     .mnemonic = "ORA"};
+    nes_2A02_cpu_opcode_map[ASL_ABS] =  (_2A02_cpu_opcode_map){.AM = ABS,     .mnemonic = "ASL"};
+    nes_2A02_cpu_opcode_map[BPL_REL] =  (_2A02_cpu_opcode_map){.AM = REL,     .mnemonic = "BPL"};
+    nes_2A02_cpu_opcode_map[ORA_INDY] = (_2A02_cpu_opcode_map){.AM = INDY,    .mnemonic = "ORA"};
+    nes_2A02_cpu_opcode_map[ORA_ZPX] =  (_2A02_cpu_opcode_map){.AM = ZPX,     .mnemonic = "ORA"};
+    nes_2A02_cpu_opcode_map[ASL_ZPX] =  (_2A02_cpu_opcode_map){.AM = ZPX,     .mnemonic = "ASL"};
+    nes_2A02_cpu_opcode_map[CLC_IMP] =  (_2A02_cpu_opcode_map){.AM = IMP,     .mnemonic = "CLC"};
+    nes_2A02_cpu_opcode_map[ORA_ABSY] = (_2A02_cpu_opcode_map){.AM = ABSY,    .mnemonic = "ORA"};
+    nes_2A02_cpu_opcode_map[ORA_ABSX] = (_2A02_cpu_opcode_map){.AM = ABSX,    .mnemonic = "ORA"};
+    nes_2A02_cpu_opcode_map[ASL_ABSX] = (_2A02_cpu_opcode_map){.AM = ABSX,    .mnemonic = "ASL"};
+    nes_2A02_cpu_opcode_map[JSR_ABS] =  (_2A02_cpu_opcode_map){.AM = ABS,     .mnemonic = "JSR"};
+    nes_2A02_cpu_opcode_map[AND_INDX] = (_2A02_cpu_opcode_map){.AM = INDX,    .mnemonic = "AND"};
+    nes_2A02_cpu_opcode_map[BIT_ZP] =   (_2A02_cpu_opcode_map){.AM = ZP,      .mnemonic = "BIT"};
+    nes_2A02_cpu_opcode_map[AND_ZP] =   (_2A02_cpu_opcode_map){.AM = ZP,      .mnemonic = "AND"};
+    nes_2A02_cpu_opcode_map[ROL_ZP] =   (_2A02_cpu_opcode_map){.AM = ZP,      .mnemonic = "ROL"};
+    nes_2A02_cpu_opcode_map[PLP_IMP] =  (_2A02_cpu_opcode_map){.AM = IMP,     .mnemonic = "PLP"};
+    nes_2A02_cpu_opcode_map[AND_IMM] =  (_2A02_cpu_opcode_map){.AM = IMM,     .mnemonic = "AND"};
+    nes_2A02_cpu_opcode_map[ROL_ACC] =  (_2A02_cpu_opcode_map){.AM = ACC,     .mnemonic = "ROL"};
+    nes_2A02_cpu_opcode_map[BIT_ABS] =  (_2A02_cpu_opcode_map){.AM = ABS,     .mnemonic = "BIT"};
+    nes_2A02_cpu_opcode_map[AND_ABS] =  (_2A02_cpu_opcode_map){.AM = ABS,     .mnemonic = "AND"};
+    nes_2A02_cpu_opcode_map[ROL_ABS] =  (_2A02_cpu_opcode_map){.AM = ABS,     .mnemonic = "ROL"};
+    nes_2A02_cpu_opcode_map[BMI_REL] =  (_2A02_cpu_opcode_map){.AM = REL,     .mnemonic = "BMI"};
+    nes_2A02_cpu_opcode_map[AND_INDY] = (_2A02_cpu_opcode_map){.AM = INDY,    .mnemonic = "AND"};
+    nes_2A02_cpu_opcode_map[AND_ZPX] =  (_2A02_cpu_opcode_map){.AM = ZPX,     .mnemonic = "AND"};
+    nes_2A02_cpu_opcode_map[ROL_ZPX] =  (_2A02_cpu_opcode_map){.AM = ZPX,     .mnemonic = "ROL"};
+    nes_2A02_cpu_opcode_map[SEC_IMP] =  (_2A02_cpu_opcode_map){.AM = IMP,     .mnemonic = "SEC"};
+    nes_2A02_cpu_opcode_map[AND_ABSY] = (_2A02_cpu_opcode_map){.AM = ABSY,    .mnemonic = "AND"};
+    nes_2A02_cpu_opcode_map[AND_ABSX] = (_2A02_cpu_opcode_map){.AM = ABSX,    .mnemonic = "AND"};
+    nes_2A02_cpu_opcode_map[ROL_ABSX] = (_2A02_cpu_opcode_map){.AM = ABSX,    .mnemonic = "ROL"};
+    nes_2A02_cpu_opcode_map[RTI_IMP] =  (_2A02_cpu_opcode_map){.AM = IMP,     .mnemonic = "RTI"};
+    nes_2A02_cpu_opcode_map[EOR_INDX] = (_2A02_cpu_opcode_map){.AM = INDX,    .mnemonic = "EOR"};
+    nes_2A02_cpu_opcode_map[EOR_ZP] =   (_2A02_cpu_opcode_map){.AM = ZP,      .mnemonic = "EOR"};
+    nes_2A02_cpu_opcode_map[LSR_ZP] =   (_2A02_cpu_opcode_map){.AM = ZP,      .mnemonic = "LSR"};
+    nes_2A02_cpu_opcode_map[PHA_IMP] =  (_2A02_cpu_opcode_map){.AM = IMP,     .mnemonic = "PHA"};
+    nes_2A02_cpu_opcode_map[EOR_IMM] =  (_2A02_cpu_opcode_map){.AM = IMM,     .mnemonic = "EOR"};
+    nes_2A02_cpu_opcode_map[LSR_ACC] =  (_2A02_cpu_opcode_map){.AM = ACC,     .mnemonic = "LSR"};
+    nes_2A02_cpu_opcode_map[JMP_ABS] =  (_2A02_cpu_opcode_map){.AM = ABS,     .mnemonic = "JMP"};
+    nes_2A02_cpu_opcode_map[EOR_ABS] =  (_2A02_cpu_opcode_map){.AM = ABS,     .mnemonic = "EOR"};
+    nes_2A02_cpu_opcode_map[LSR_ABS] =  (_2A02_cpu_opcode_map){.AM = ABS,     .mnemonic = "LSR"};
+    nes_2A02_cpu_opcode_map[BVC_REL] =  (_2A02_cpu_opcode_map){.AM = REL,     .mnemonic = "BVC"};
+    nes_2A02_cpu_opcode_map[EOR_INDY] = (_2A02_cpu_opcode_map){.AM = INDY,    .mnemonic = "EOR"};
+    nes_2A02_cpu_opcode_map[EOR_ZPX] =  (_2A02_cpu_opcode_map){.AM = ZPX,     .mnemonic = "EOR"};
+    nes_2A02_cpu_opcode_map[LSR_ZPX] =  (_2A02_cpu_opcode_map){.AM = ZPX,     .mnemonic = "LSR"};
+    nes_2A02_cpu_opcode_map[CLI_IMP] =  (_2A02_cpu_opcode_map){.AM = IMP,     .mnemonic = "CLI"};
+    nes_2A02_cpu_opcode_map[EOR_ABSY] = (_2A02_cpu_opcode_map){.AM = ABSY,    .mnemonic = "EOR"};
+    nes_2A02_cpu_opcode_map[EOR_ABSX] = (_2A02_cpu_opcode_map){.AM = ABSX,    .mnemonic = "EOR"};
+    nes_2A02_cpu_opcode_map[LSR_ABSX] = (_2A02_cpu_opcode_map){.AM = ABSX,    .mnemonic = "LSR"};
+    nes_2A02_cpu_opcode_map[RTS_IMP] =  (_2A02_cpu_opcode_map){.AM = IMP,     .mnemonic = "RTS"};
+    nes_2A02_cpu_opcode_map[ADC_INDX] = (_2A02_cpu_opcode_map){.AM = INDX,    .mnemonic = "ADC"};
+    nes_2A02_cpu_opcode_map[ADC_ZP] =   (_2A02_cpu_opcode_map){.AM = ZP,      .mnemonic = "ADC"};
+    nes_2A02_cpu_opcode_map[ROR_ZP] =   (_2A02_cpu_opcode_map){.AM = ZP,      .mnemonic = "ROR"};
+    nes_2A02_cpu_opcode_map[PLA_IMP] =  (_2A02_cpu_opcode_map){.AM = IMP,     .mnemonic = "PLA"};
+    nes_2A02_cpu_opcode_map[ADC_IMM] =  (_2A02_cpu_opcode_map){.AM = IMM,     .mnemonic = "ADC"};
+    nes_2A02_cpu_opcode_map[ROR_ACC] =  (_2A02_cpu_opcode_map){.AM = ACC,     .mnemonic = "ROR"};
+    nes_2A02_cpu_opcode_map[JMP_IND] =  (_2A02_cpu_opcode_map){.AM = IND,     .mnemonic = "JMP"};
+    nes_2A02_cpu_opcode_map[ADC_ABS] =  (_2A02_cpu_opcode_map){.AM = ABS,     .mnemonic = "ADC"};
+    nes_2A02_cpu_opcode_map[ROR_ABS] =  (_2A02_cpu_opcode_map){.AM = ABS,     .mnemonic = "ROR"};
+    nes_2A02_cpu_opcode_map[BVS_REL] =  (_2A02_cpu_opcode_map){.AM = REL,     .mnemonic = "BVS"};
+    nes_2A02_cpu_opcode_map[ADC_INDY] = (_2A02_cpu_opcode_map){.AM = INDY,    .mnemonic = "ADC"};
+    nes_2A02_cpu_opcode_map[ADC_ZPX] =  (_2A02_cpu_opcode_map){.AM = ZPX,     .mnemonic = "ADC"};
+    nes_2A02_cpu_opcode_map[ROR_ZPX] =  (_2A02_cpu_opcode_map){.AM = ZPX,     .mnemonic = "ROR"};
+    nes_2A02_cpu_opcode_map[SEI_IMP] =  (_2A02_cpu_opcode_map){.AM = IMP,     .mnemonic = "SEI"};
+    nes_2A02_cpu_opcode_map[ADC_ABSY] = (_2A02_cpu_opcode_map){.AM = ABSY,    .mnemonic = "ADC"};
+    nes_2A02_cpu_opcode_map[ADC_ABSX] = (_2A02_cpu_opcode_map){.AM = ABSX,    .mnemonic = "ADC"};
+    nes_2A02_cpu_opcode_map[ROR_ABSX] = (_2A02_cpu_opcode_map){.AM = ABSX,    .mnemonic = "ROR"};
+    nes_2A02_cpu_opcode_map[STA_INDX] = (_2A02_cpu_opcode_map){.AM = INDX,    .mnemonic = "STA"};
+    nes_2A02_cpu_opcode_map[STY_ZP] =   (_2A02_cpu_opcode_map){.AM = ZP,      .mnemonic = "STY"};
+    nes_2A02_cpu_opcode_map[STA_ZP] =   (_2A02_cpu_opcode_map){.AM = ZP,      .mnemonic = "STA"};
+    nes_2A02_cpu_opcode_map[STX_ZP] =   (_2A02_cpu_opcode_map){.AM = ZP,      .mnemonic = "STX"};
+    nes_2A02_cpu_opcode_map[DEY_IMP] =  (_2A02_cpu_opcode_map){.AM = IMP,     .mnemonic = "DEY"};
+    nes_2A02_cpu_opcode_map[TXA_IMP] =  (_2A02_cpu_opcode_map){.AM = IMP,     .mnemonic = "TXA"};
+    nes_2A02_cpu_opcode_map[STY_ABS] =  (_2A02_cpu_opcode_map){.AM = ABS,     .mnemonic = "STY"};
+    nes_2A02_cpu_opcode_map[STA_ABS] =  (_2A02_cpu_opcode_map){.AM = ABS,     .mnemonic = "STA"};
+    nes_2A02_cpu_opcode_map[STX_ABS] =  (_2A02_cpu_opcode_map){.AM = ABS,     .mnemonic = "STX"};
+    nes_2A02_cpu_opcode_map[BCC_REL] =  (_2A02_cpu_opcode_map){.AM = REL,     .mnemonic = "BCC"};
+    nes_2A02_cpu_opcode_map[STA_INDY] = (_2A02_cpu_opcode_map){.AM = INDY,    .mnemonic = "STA"};
+    nes_2A02_cpu_opcode_map[STY_ZPX] =  (_2A02_cpu_opcode_map){.AM = ZPX,     .mnemonic = "STY"};
+    nes_2A02_cpu_opcode_map[STA_ZPX] =  (_2A02_cpu_opcode_map){.AM = ZPX,     .mnemonic = "STA"};
+    nes_2A02_cpu_opcode_map[STX_ZPY] =  (_2A02_cpu_opcode_map){.AM = ZPY,     .mnemonic = "STX"};
+    nes_2A02_cpu_opcode_map[TYA_IMP] =  (_2A02_cpu_opcode_map){.AM = IMP,     .mnemonic = "TYA"};
+    nes_2A02_cpu_opcode_map[STA_ABSY] = (_2A02_cpu_opcode_map){.AM = ABSY,    .mnemonic = "STA"};
+    nes_2A02_cpu_opcode_map[TXS_IMP] =  (_2A02_cpu_opcode_map){.AM = IMP,     .mnemonic = "TXS"};
+    nes_2A02_cpu_opcode_map[STA_ABSX] = (_2A02_cpu_opcode_map){.AM = ABSX,    .mnemonic = "STA"};
+    nes_2A02_cpu_opcode_map[LDY_IMM] =  (_2A02_cpu_opcode_map){.AM = IMM,     .mnemonic = "LDY"};
+    nes_2A02_cpu_opcode_map[LDA_INDX] = (_2A02_cpu_opcode_map){.AM = INDX,    .mnemonic = "LDA"};
+    nes_2A02_cpu_opcode_map[LDX_IMM] =  (_2A02_cpu_opcode_map){.AM = IMM,     .mnemonic = "LDX"};
+    nes_2A02_cpu_opcode_map[LDY_ZP] =   (_2A02_cpu_opcode_map){.AM = ZP,      .mnemonic = "LDY"};
+    nes_2A02_cpu_opcode_map[LDA_ZP] =   (_2A02_cpu_opcode_map){.AM = ZP,      .mnemonic = "LDA"};
+    nes_2A02_cpu_opcode_map[LDX_ZP] =   (_2A02_cpu_opcode_map){.AM = ZP,      .mnemonic = "LDX"};
+    nes_2A02_cpu_opcode_map[TAY_IMP] =  (_2A02_cpu_opcode_map){.AM = IMP,     .mnemonic = "TAY"};
+    nes_2A02_cpu_opcode_map[LDA_IMM] =  (_2A02_cpu_opcode_map){.AM = IMM,     .mnemonic = "LDA"};
+    nes_2A02_cpu_opcode_map[TAX_IMP] =  (_2A02_cpu_opcode_map){.AM = IMP,     .mnemonic = "TAX"};
+    nes_2A02_cpu_opcode_map[LDY_ABS] =  (_2A02_cpu_opcode_map){.AM = ABS,     .mnemonic = "LDY"};
+    nes_2A02_cpu_opcode_map[LDA_ABS] =  (_2A02_cpu_opcode_map){.AM = ABS,     .mnemonic = "LDA"};
+    nes_2A02_cpu_opcode_map[LDX_ABS] =  (_2A02_cpu_opcode_map){.AM = ABS,     .mnemonic = "LDX"};
+    nes_2A02_cpu_opcode_map[BCS_REL] =  (_2A02_cpu_opcode_map){.AM = REL,     .mnemonic = "BCS"};
+    nes_2A02_cpu_opcode_map[LDA_INDY] = (_2A02_cpu_opcode_map){.AM = INDY,    .mnemonic = "LDA"};
+    nes_2A02_cpu_opcode_map[LDY_ZPX] =  (_2A02_cpu_opcode_map){.AM = ZPX,     .mnemonic = "LDY"};
+    nes_2A02_cpu_opcode_map[LDA_ZPX] =  (_2A02_cpu_opcode_map){.AM = ZPX,     .mnemonic = "LDA"};
+    nes_2A02_cpu_opcode_map[LDX_ZPY] =  (_2A02_cpu_opcode_map){.AM = ZPY,     .mnemonic = "LDX"};
+    nes_2A02_cpu_opcode_map[CLV_IMP] =  (_2A02_cpu_opcode_map){.AM = IMP,     .mnemonic = "CLV"};
+    nes_2A02_cpu_opcode_map[LDA_ABSY] = (_2A02_cpu_opcode_map){.AM = ABSY,    .mnemonic = "LDA"};
+    nes_2A02_cpu_opcode_map[TSX_IMP] =  (_2A02_cpu_opcode_map){.AM = IMP,     .mnemonic = "TSX"};
+    nes_2A02_cpu_opcode_map[LDY_ABSX] = (_2A02_cpu_opcode_map){.AM = ABSX,    .mnemonic = "LDY"};
+    nes_2A02_cpu_opcode_map[LDA_ABSX] = (_2A02_cpu_opcode_map){.AM = ABSX,    .mnemonic = "LDA"};
+    nes_2A02_cpu_opcode_map[LDX_ABSY] = (_2A02_cpu_opcode_map){.AM = ABSY,    .mnemonic = "LDX"};
+    nes_2A02_cpu_opcode_map[CPY_IMM] =  (_2A02_cpu_opcode_map){.AM = IMM,     .mnemonic = "CPY"};
+    nes_2A02_cpu_opcode_map[CMP_INDX] = (_2A02_cpu_opcode_map){.AM = INDX,    .mnemonic = "CMP"};
+    nes_2A02_cpu_opcode_map[CPY_ZP] =   (_2A02_cpu_opcode_map){.AM = ZP,      .mnemonic = "CPY"};
+    nes_2A02_cpu_opcode_map[CMP_ZP] =   (_2A02_cpu_opcode_map){.AM = ZP,      .mnemonic = "CMP"};
+    nes_2A02_cpu_opcode_map[DEC_ZP] =   (_2A02_cpu_opcode_map){.AM = ZP,      .mnemonic = "DEC"};
+    nes_2A02_cpu_opcode_map[INY_IMP] =  (_2A02_cpu_opcode_map){.AM = IMP,     .mnemonic = "INY"};
+    nes_2A02_cpu_opcode_map[CMP_IMM] =  (_2A02_cpu_opcode_map){.AM = IMM,     .mnemonic = "CMP"};
+    nes_2A02_cpu_opcode_map[DEX_IMP] =  (_2A02_cpu_opcode_map){.AM = IMP,     .mnemonic = "DEX"};
+    nes_2A02_cpu_opcode_map[CPY_ABS] =  (_2A02_cpu_opcode_map){.AM = ABS,     .mnemonic = "CPY"};
+    nes_2A02_cpu_opcode_map[CMP_ABS] =  (_2A02_cpu_opcode_map){.AM = ABS,     .mnemonic = "CMP"};
+    nes_2A02_cpu_opcode_map[DEC_ABS] =  (_2A02_cpu_opcode_map){.AM = ABS,     .mnemonic = "DEC"};
+    nes_2A02_cpu_opcode_map[BNE_REL] =  (_2A02_cpu_opcode_map){.AM = REL,     .mnemonic = "BNE"};
+    nes_2A02_cpu_opcode_map[CMP_INDY] = (_2A02_cpu_opcode_map){.AM = INDY,    .mnemonic = "CMP"};
+    nes_2A02_cpu_opcode_map[CMP_ZPX] =  (_2A02_cpu_opcode_map){.AM = ZPX,     .mnemonic = "CMP"};
+    nes_2A02_cpu_opcode_map[DEC_ZPX] =  (_2A02_cpu_opcode_map){.AM = ZPX,     .mnemonic = "DEC"};
+    nes_2A02_cpu_opcode_map[CLD_IMP] =  (_2A02_cpu_opcode_map){.AM = IMP,     .mnemonic = "CLD"};
+    nes_2A02_cpu_opcode_map[CMP_ABSY] = (_2A02_cpu_opcode_map){.AM = ABSY,    .mnemonic = "CMP"};
+    nes_2A02_cpu_opcode_map[CMP_ABSX] = (_2A02_cpu_opcode_map){.AM = ABSX,    .mnemonic = "CMP"};
+    nes_2A02_cpu_opcode_map[DEC_ABSX] = (_2A02_cpu_opcode_map){.AM = ABSX,    .mnemonic = "DEC"};
+    nes_2A02_cpu_opcode_map[CPX_IMM] =  (_2A02_cpu_opcode_map){.AM = IMM,     .mnemonic = "CPX"};
+    nes_2A02_cpu_opcode_map[SBC_INDX] = (_2A02_cpu_opcode_map){.AM = INDX,    .mnemonic = "SBC"};
+    nes_2A02_cpu_opcode_map[CPX_ZP] =   (_2A02_cpu_opcode_map){.AM = ZP,      .mnemonic = "CPX"};
+    nes_2A02_cpu_opcode_map[SBC_ZP] =   (_2A02_cpu_opcode_map){.AM = ZP,      .mnemonic = "SBC"};
+    nes_2A02_cpu_opcode_map[INC_ZP] =   (_2A02_cpu_opcode_map){.AM = ZP,      .mnemonic = "INC"};
+    nes_2A02_cpu_opcode_map[INX_IMP] =  (_2A02_cpu_opcode_map){.AM = IMP,     .mnemonic = "INX"};
+    nes_2A02_cpu_opcode_map[SBC_IMM] =  (_2A02_cpu_opcode_map){.AM = IMM,     .mnemonic = "SBC"};
+    nes_2A02_cpu_opcode_map[NOP_IMP] =  (_2A02_cpu_opcode_map){.AM = IMP,     .mnemonic = "NOP"};
+    nes_2A02_cpu_opcode_map[CPX_ABS] =  (_2A02_cpu_opcode_map){.AM = ABS,     .mnemonic = "CPX"};
+    nes_2A02_cpu_opcode_map[SBC_ABS] =  (_2A02_cpu_opcode_map){.AM = ABS,     .mnemonic = "SBC"};
+    nes_2A02_cpu_opcode_map[INC_ABS] =  (_2A02_cpu_opcode_map){.AM = ABS,     .mnemonic = "INC"};
+    nes_2A02_cpu_opcode_map[BEQ_REL] =  (_2A02_cpu_opcode_map){.AM = REL,     .mnemonic = "BEQ"};
+    nes_2A02_cpu_opcode_map[SBC_INDY] = (_2A02_cpu_opcode_map){.AM = INDY,    .mnemonic = "SBC"};
+    nes_2A02_cpu_opcode_map[SBC_ZPX] =  (_2A02_cpu_opcode_map){.AM = ZPX,     .mnemonic = "SBC"};
+    nes_2A02_cpu_opcode_map[INC_ZPX] =  (_2A02_cpu_opcode_map){.AM = ZPX,     .mnemonic = "INC"};
+    nes_2A02_cpu_opcode_map[SED_IMP] =  (_2A02_cpu_opcode_map){.AM = IMP,     .mnemonic = "SED"};
+    nes_2A02_cpu_opcode_map[SBC_ABSY] = (_2A02_cpu_opcode_map){.AM = ABSY,    .mnemonic = "SBC"};
+    nes_2A02_cpu_opcode_map[SBC_ABSX] = (_2A02_cpu_opcode_map){.AM = ABSX,    .mnemonic = "SBC"};
+    nes_2A02_cpu_opcode_map[INC_ABSX] = (_2A02_cpu_opcode_map){.AM = ABSX,    .mnemonic = "INC"};
+}
 
 /* Debug function to print zero page memory */
 static inline void print_zp()
@@ -533,7 +464,7 @@ static inline void print_zp()
     printf("\n---ZERO PAGE DUMP---\n");
     for(size_t i = 0; i <= 0xF; i++)
     {
-        printf("0x%02X:\t", temp_addr);
+        printf("0x%02X:\t", (i << 4));
         for(size_t j = 0; j <= 0xF; j++)
         {
             temp_addr = (uint8_t) (i << 4) | j;
@@ -609,7 +540,7 @@ static inline bool get_flag(nes_cpu_flags flag)
         case N: return(nes_cpu_registers.S & flag) >> 7;
         case V: return(nes_cpu_registers.S & flag) >> 6;
         case B: return(nes_cpu_registers.S & flag) >> 4;
-        case I: return(nes_cpu_registers.S & flag) >> 3;
+        case I: return(nes_cpu_registers.S & flag) >> 2;
         case Z: return(nes_cpu_registers.S & flag) >> 1;
         case C: return(nes_cpu_registers.S & flag);
         case U: return 1;
@@ -630,28 +561,19 @@ static inline bool get_flag(nes_cpu_flags flag)
 /* Takes the branch */
 #define TAKE_BRANCH             (PC_offset += (int8_t)nes_cpu_bus.DB)
 
-#define CLEAR_OP_STRING         {\
-op_string[0] = ' ';\
-op_string[1] = ' ';\
-op_string[2] = ' ';\
-op_string[3] = ' ';\
-op_string[4] = ' ';\
-op_string[5] = ' ';\
-op_string[6] = ' ';\
-op_string[7] = ' ';\
-}
+#define CLEAR_OPERAND_STRING    memset((void*)operand, ' ', 9);
 
 /* Current addressing mode */
 uint8_t current_addr_mode = NONE;
 
 /* String used in disassembly of rom to display operand */
-char op_string[9];
+char operand[9];
 
 /* Get operand using different address modes */
 static inline void get_operand_AM(nes_cpu_addr_modes mode)
 {
     current_addr_mode = mode;
-    CLEAR_OP_STRING;
+    CLEAR_OPERAND_STRING;
     switch (mode)
     {
         case ABS:
@@ -664,13 +586,7 @@ static inline void get_operand_AM(nes_cpu_addr_modes mode)
             PC_offset = 3;
 
             /* Set Operand string (TO-DO: fix this) */
-            op_string[0] = '$';
-
-            op_string[1] = "0123456789ABCDEF"[(hi & 0xF0) >> 4];
-            op_string[2] = "0123456789ABCDEF"[(hi & 0x0F)];
-
-            op_string[3] = "0123456789ABCDEF"[(lo & 0xF0) >> 4];
-            op_string[4] = "0123456789ABCDEF"[(lo & 0x0F)];
+            sprintf(operand, "$%04X   \0", nes_cpu_bus.AB);
         }
         break;
         case REL: 
@@ -680,22 +596,18 @@ static inline void get_operand_AM(nes_cpu_addr_modes mode)
             PC_offset = 2;
 
             /* Set Operand string (TO-DO: fix this) */
-            op_string[0] = '$';
-            op_string[1] = "0123456789ABCDEF"[(uint8_t)(offset & 0xF0) >> 4];
-            op_string[2] = "0123456789ABCDEF"[(uint8_t)(offset & 0x0F)];
+            sprintf(operand, "$%02X     \0", nes_cpu_bus.DB);
         }
         break;
         case ZP:
         {
-            uint16_t addr = PEEK(nes_cpu_registers.PC + 1);
+            nes_cpu_bus.AB = PEEK(nes_cpu_registers.PC + 1);
             
-            nes_cpu_bus.DB = PEEK_ZP(addr);
+            nes_cpu_bus.DB = PEEK_ZP(nes_cpu_bus.AB);
             PC_offset = 2;
 
             /* Set Operand string (TO-DO: fix this) */
-            op_string[0] = '$';
-            op_string[1] = "0123456789ABCDEF"[(uint8_t)(addr & 0xF0) >> 4];
-            op_string[2] = "0123456789ABCDEF"[(uint8_t)(addr & 0x0F)];
+            sprintf(operand, "$%02X     \0", (nes_cpu_bus.AB & 0xFF));
         }
         break;
         case ABSX:
@@ -708,16 +620,7 @@ static inline void get_operand_AM(nes_cpu_addr_modes mode)
             PC_offset = 3;
 
             /* Set Operand string (TO-DO: fix this) */
-            op_string[0] = '$';
-            op_string[5] = ','; 
-
-            op_string[1] = "0123456789ABCDEF"[(hi & 0xF0) >> 4];
-            op_string[2] = "0123456789ABCDEF"[(hi & 0x0F)];
-
-            op_string[3] = "0123456789ABCDEF"[(lo & 0xF0) >> 4];
-            op_string[4] = "0123456789ABCDEF"[(lo & 0x0F)];
-
-            op_string[6] = 'X';
+            sprintf(operand, "$%04X, X\0", nes_cpu_bus.AB + nes_cpu_registers.X);
         }
         break;
         case ABSY:
@@ -730,16 +633,7 @@ static inline void get_operand_AM(nes_cpu_addr_modes mode)
             PC_offset = 3;
 
             /* Set Operand string (TO-DO: fix this) */
-            op_string[0] = '$';
-            op_string[5] = ','; 
-
-            op_string[1] = "0123456789ABCDEF"[(hi & 0xF0) >> 4];
-            op_string[2] = "0123456789ABCDEF"[(hi & 0x0F)];
-
-            op_string[3] = "0123456789ABCDEF"[(lo & 0xF0) >> 4];
-            op_string[4] = "0123456789ABCDEF"[(lo & 0x0F)];
-
-            op_string[6] = 'Y';
+            sprintf(operand, "$%04X, Y\0", nes_cpu_bus.AB + nes_cpu_registers.Y);
         }
         break;
         case ZPX:
@@ -750,12 +644,7 @@ static inline void get_operand_AM(nes_cpu_addr_modes mode)
             PC_offset = 2;
 
             /* Set Operand string (TO-DO: fix this) */
-            op_string[0] = '$';
-            op_string[3] = ',';
-            op_string[4] = 'X';
-
-            op_string[1] = "0123456789ABCDEF"[(uint8_t)(addr & 0xF0) >> 4];
-            op_string[2] = "0123456789ABCDEF"[(uint8_t)(addr & 0x0F)];
+            sprintf(operand, "$%02X, X  \0", (addr & 0xFF));
         }
         break;
         case ZPY:
@@ -766,79 +655,61 @@ static inline void get_operand_AM(nes_cpu_addr_modes mode)
             PC_offset = 2;
 
             /* Set Operand string (TO-DO: fix this) */
-            op_string[0] = '$';
-            op_string[3] = ',';
-            op_string[4] = 'Y';
-
-            op_string[1] = "0123456789ABCDEF"[(uint8_t)(addr & 0xF0) >> 4];
-            op_string[2] = "0123456789ABCDEF"[(uint8_t)(addr & 0x0F)];
+            sprintf(operand, "$%02X, Y  \0", (addr & 0xFF));
         }
         break;
         case ACC:
             nes_cpu_bus.DB = nes_cpu_registers.A; 
             PC_offset = 1;
 
-            op_string[0] = 'A';
+            operand[0] = 'A';
         break;
         case IMM: 
             nes_cpu_bus.DB = PEEK(nes_cpu_registers.PC + 1);
             PC_offset = 2;
 
             /* Set Operand string (TO-DO: fix this) */
-            op_string[0] = '#';
-            op_string[1] = '$';
-            
-            op_string[2] = "0123456789ABCDEF"[(nes_cpu_bus.DB & 0xF0) >> 4];
-            op_string[3] = "0123456789ABCDEF"[(nes_cpu_bus.DB & 0x0F)];
+            sprintf(operand, "#$%02X    \0", nes_cpu_bus.DB);
         break;
         case IND: 
         {
-            uint8_t hi = PEEK(nes_cpu_registers.PC + 2);
-            uint8_t lo = PEEK(nes_cpu_registers.PC + 1);
+            uint8_t hi = PEEK(nes_cpu_registers.PC + 2),
+                    lo = PEEK(nes_cpu_registers.PC + 1);
 
             uint16_t ind_addr = (uint16_t)hi << 8 | lo;
-            nes_cpu_bus.DB = PEEK(ind_addr);
+            hi = PEEK(ind_addr + 1);
+            lo = PEEK(ind_addr);
+            
+            nes_cpu_bus.AB = (uint16_t)hi << 8 | lo;
+            nes_cpu_bus.DB = PEEK(nes_cpu_bus.AB);
             PC_offset = 3;
 
             /* Set Operand string (TO-DO: fix this) */
-            op_string[0] = '(';
-            op_string[1] = '$';
-            op_string[7] = ')';
-
-            op_string[2] = "0123456789ABCDEF"[(hi & 0xF0) >> 4];
-            op_string[3] = "0123456789ABCDEF"[(hi & 0x0F)];
-
-            op_string[4] = "0123456789ABCDEF"[(lo & 0xF0) >> 4];
-            op_string[5] = "0123456789ABCDEF"[(lo & 0x0F)];
+            sprintf(operand, "($%04X) \0", ind_addr);
         }
         break;
         case INDX:
         {
-            /* Index X is added to third and second byte of the instruction, then used to fetch the corresponding bytes from zero page */
-            uint8_t hi = PEEK_ZP(PEEK(nes_cpu_registers.PC + 2) + nes_cpu_registers.X);
-            uint8_t lo = PEEK_ZP(PEEK(nes_cpu_registers.PC + 1) + nes_cpu_registers.X);
+            /* Add operand to X to get ZP address */
+            uint8_t op = PEEK(nes_cpu_registers.PC + 1),
+                    hi = PEEK_ZP(op + nes_cpu_registers.X + 1),
+                    lo = PEEK_ZP(op + nes_cpu_registers.X);
 
-            uint16_t index_addr = ((uint16_t)hi << 8 | lo);
+            uint16_t index_addr = (uint16_t) (hi << 8) | lo;
+            
             nes_cpu_bus.DB = PEEK(index_addr);
-            PC_offset = 3;
+            PC_offset = 2;
 
             /* Set Operand string (TO-DO: fix this) */
-            op_string[0] = '(';
-            op_string[1] = '$';
-            op_string[4] = ',';
-            op_string[7] = ')';
-
-            op_string[2] = "0123456789ABCDEF"[(lo & 0xF0) >> 4];
-            op_string[3] = "0123456789ABCDEF"[(lo & 0x0F)];
-
-            op_string[5] = 'X';
+            sprintf(operand, "($%02X), X \0", op);
         }
         break;
         case INDY:
         {
-            /* Get high and low byte from zero page (using bytes from the instruction) and add contents of Y register to them. */
-            uint8_t hi = PEEK_ZP(PEEK(nes_cpu_registers.PC + 2));
-            uint8_t lo = PEEK_ZP(PEEK(nes_cpu_registers.PC + 1));
+            /* Get high and low byte from zero page (using zp address from operand) and add contents of Y register to the final address. */
+            uint8_t op = PEEK(nes_cpu_registers.PC + 1),
+                    hi = PEEK_ZP(op + 1),
+                    lo = PEEK_ZP(op);
             
             uint16_t indir_addr = ((uint16_t)hi << 8 | lo) + nes_cpu_registers.Y;
             if((indir_addr & 0xFF00) != hi)
@@ -847,21 +718,13 @@ static inline void get_operand_AM(nes_cpu_addr_modes mode)
             }
             
             nes_cpu_bus.DB = PEEK(indir_addr);
-            PC_offset = 3;
+            PC_offset = 2;
 
             /* Set Operand string (TO-DO: fix this) */
-            op_string[0] = '(';
-            op_string[1] = '$';
-            op_string[4] = ')';
-            op_string[5] = ',';
-
-            op_string[2] = "0123456789ABCDEF"[(lo & 0xF0) >> 4];
-            op_string[3] = "0123456789ABCDEF"[(lo & 0x0F)];
-
-            op_string[6] = 'Y';
+            sprintf(operand, "($%02X), Y \0", op);
         }
         break;
-        case IMP:
+        case IMP: case NONE:
             PC_offset = 1;
         break;
     }
@@ -870,7 +733,26 @@ static inline void get_operand_AM(nes_cpu_addr_modes mode)
 /* Debug function to print opcode and operand (incomplete) */
 static inline void print_opcode(nes_cpu_opcodes opcode)
 {
-    printf("0x%02X: %s  %s\t", opcode, nes_cpu_opcode_str[opcode], op_string);
+    char ins_bytes_str[10];
+
+    memset((void *)ins_bytes_str, ' ', 9);
+    ins_bytes_str[9] = '\0';
+
+    /* Print each byte of instruction */
+    switch(nes_2A02_cpu_opcode_map[opcode].AM)
+    {
+        case IMP: case ACC:                                                     /* Print one byte of instruction */
+        sprintf(ins_bytes_str, "%02X       \0", opcode);
+        break;
+        case IMM: case ZP: case ZPX: case ZPY: case REL: case INDX: case INDY:  /* Print two bytes of instruction */
+        sprintf(ins_bytes_str, "%02X %02X    \0", opcode, PEEK(nes_cpu_registers.PC + 1));
+        break;
+        case ABS: case ABSX: case ABSY: case IND:                               /* Print three bytes of instruction */
+        sprintf(ins_bytes_str, "%02X %02X %02X \0", opcode, PEEK(nes_cpu_registers.PC + 1), PEEK(nes_cpu_registers.PC + 2));
+        break;
+    }
+
+    printf("%s: %s  %s\t", ins_bytes_str, nes_2A02_cpu_opcode_map[opcode].mnemonic, operand);
 }
 
 
@@ -896,12 +778,12 @@ static inline void IRQ()
 }
 
 /* Decrement # of cycles and wait for a period of time */
-void CPU_tick()
+void CPU_wait()
 {
     while (nes_cpu_registers.Cycles != 0)
     {
         nes_cpu_registers.Cycles -= 1;
-        /* some kind of wait() function here */
+        tick();
     }
 }
 
@@ -945,12 +827,20 @@ static inline void RESET()
 /* Add with Carry, Adds memory to Accumulator  */
 static inline void ADC()
 {
-    uint16_t sum = (uint16_t) (nes_cpu_bus.DB + nes_cpu_registers.A);
+    uint8_t tmp_a = nes_cpu_registers.A;
+    uint16_t sum = (uint16_t) (nes_cpu_bus.DB + tmp_a);
     nes_cpu_registers.A = (uint8_t) sum;
 
+    /* 
+    ADC is just Tmp_A + DB => A, check the sign bit of Tmp_A and DB with the result and if it's non-zero, set V flag.
+    
+    http://www.righto.com/2012/12/the-6502-overflow-flag-explained.html
+    */
+    bool overflow = (((nes_cpu_bus.DB ^ nes_cpu_registers.A) & (tmp_a ^ nes_cpu_registers.A) & 0x80) != 0);
+
     test_flag(N, IS_NEGATIVE(sum)); 
-    test_flag(Z, (sum == 0x00)); 
-    test_flag(V, DOES_OVERFLOW(sum));     
+    test_flag(Z, (nes_cpu_registers.A == 0x00)); 
+    test_flag(V, overflow);     
     test_flag(C, (sum > 0xFF)); 
 }
 
@@ -976,9 +866,13 @@ static inline void ASL()
 /* Test Bits */
 static inline void BIT()
 {
-    test_flag(N, IS_NEGATIVE(nes_cpu_bus.DB));
+    /*test_flag(N, IS_NEGATIVE(nes_cpu_bus.DB));
     test_flag(V, (nes_cpu_bus.DB & 0x40 == 0x40));
-    test_flag(Z, (nes_cpu_bus.DB == 0x00));
+    test_flag(Z, (nes_cpu_bus.DB == 0x00));*/
+
+    test_flag(N, IS_NEGATIVE(nes_cpu_bus.DB));
+    test_flag(V, (nes_cpu_bus.DB & 0x40) >> 6);
+    test_flag(Z, !(nes_cpu_bus.DB & nes_cpu_registers.A));
 }
 
 /* Branch on Carry Clear */
@@ -1072,31 +966,31 @@ static inline void CLV()
 /* Compare Memory with Accumulator */
 static inline void CMP()
 {
-    uint16_t sub = nes_cpu_registers.A - nes_cpu_bus.DB;
+    uint16_t sub = nes_cpu_bus.DB - nes_cpu_registers.A;
 
     test_flag(N, IS_NEGATIVE((uint8_t)sub));
     test_flag(Z, (uint8_t)sub == 0x00);
-    test_flag(C, ( sub > 0xFF ));
+    test_flag(C, ( sub > 0xFF ) | ((uint8_t)sub == 0x00));
 }
 
 /* Compare Memory and Index X */
 static inline void CPX()
 {
-    uint16_t sub = nes_cpu_registers.X - nes_cpu_bus.DB;
+    uint16_t sub = nes_cpu_bus.DB - nes_cpu_registers.X;
 
     test_flag(N, IS_NEGATIVE((uint8_t)sub));
     test_flag(Z, (uint8_t)sub == 0x00);
-    test_flag(C, ( sub > 0xFF ));
+    test_flag(C, ( sub > 0xFF ) | ((uint8_t)sub == 0x00));
 }
 
 /* Compare Memory and Index Y */
 static inline void CPY()
 {
-    uint16_t sub = nes_cpu_registers.Y - nes_cpu_bus.DB;
+    uint16_t sub = nes_cpu_bus.DB - nes_cpu_registers.Y;
 
     test_flag(N, IS_NEGATIVE((uint8_t)sub));
     test_flag(Z, (uint8_t)sub == 0x00);
-    test_flag(C, ( sub > 0xFF ));
+    test_flag(C, ( sub > 0xFF ) | ((uint8_t)sub == 0x00));
 }
 
 /* DECrement memory */
@@ -1115,7 +1009,7 @@ static inline void DEX()
     nes_cpu_registers.X--;
 
     test_flag(N, IS_NEGATIVE(nes_cpu_registers.X));
-    test_flag(Z, (nes_cpu_registers.A == 0x00)); 
+    test_flag(Z, (nes_cpu_registers.X == 0x00)); 
 }
 
 /* Decrement Index Y by One */
@@ -1173,8 +1067,8 @@ static inline void JMP()
 /* Jump saving return address */
 static inline void JSR()
 {
-    uint8_t hi = ((nes_cpu_registers.PC + 3) >> 8) & 0x00FF;
-    uint8_t lo = ((nes_cpu_registers.PC + 3) & 0x00FF);
+    uint8_t hi = ((nes_cpu_registers.PC + 2) & 0xFF00) >> 8;
+    uint8_t lo = ((nes_cpu_registers.PC + 2) & 0x00FF);
 
     PUSH(hi);
     PUSH(lo);
@@ -1262,6 +1156,8 @@ static inline void PLA()
 static inline void PLP()
 {
     nes_cpu_registers.S = POP();
+    clear_flag(B);
+    test_flag(U, 1);
 }
 
 /* Rotate one bit left */
@@ -1301,7 +1197,7 @@ static inline void RTS()
     uint8_t lo = POP();
     uint8_t hi = POP();
 
-    nes_cpu_registers.PC = (uint16_t)(hi << 8) | lo;
+    nes_cpu_registers.PC = ((uint16_t)(hi << 8) | lo);
 }
 
 /* Subtract with carry */
